@@ -36,6 +36,7 @@ ENROLMENT_PROGRAM = ROOT / "runtime" / "WavelyEnrol.exe"
 TRAINING_PROGRAM = ROOT / "runtime" / "WavelyTrain.exe"
 WINDOW_TITLE = "WAVELY Vision"
 ENROLMENT_WINDOW_TITLE = "WAVELY Video Face Enrolment"
+APP_VERSION = "0.1.1"
 
 GWL_STYLE = -16
 WS_CHILD = 0x40000000
@@ -106,7 +107,7 @@ class WavelyDashboard:
         self.theme_is_dark = saved_theme == "dark" if saved_theme in {"dark", "light"} else True
 
         self.root = tk.Tk()
-        self.root.title("WAVELY Vision Control")
+        self.root.title(f"WAVELY Vision Control v{APP_VERSION}")
         self.root.configure(bg="#10151c")
         style = ttk.Style(self.root)
         style.theme_use("clam")
