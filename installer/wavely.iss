@@ -5,7 +5,7 @@
 [Setup]
 AppId={{A6A052C5-0C9D-485B-A228-5629AB44C79F}
 AppName=WAVELY
-AppVersion=0.1.1
+AppVersion=0.1.2
 AppPublisher=WAVELY
 DefaultDirName={localappdata}\Programs\WAVELY
 DefaultGroupName=WAVELY

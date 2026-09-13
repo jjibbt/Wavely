@@ -1,4 +1,4 @@
-WAVELY v0.1.1 - END-USER GUIDE
+WAVELY v0.1.2 - END-USER GUIDE
 ===============================
 
 1. WHAT WAVELY IS
@@ -352,6 +352,6 @@ Complete reset
 
 15. VERSION AND DISTRIBUTION
 ----------------------------
-This guide describes WAVELY v0.1.1. Normal users should install and run WAVELY using WAVELY-Setup.exe. The source
+This guide describes WAVELY v0.1.2. Normal users should install and run WAVELY using WAVELY-Setup.exe. The source
 files, Python environment, build scripts, and development folders are for
 building or maintaining WAVELY and are not required on an end-user PC.

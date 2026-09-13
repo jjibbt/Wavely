@@ -36,7 +36,7 @@ ENROLMENT_PROGRAM = ROOT / "runtime" / "WavelyEnrol.exe"
 TRAINING_PROGRAM = ROOT / "runtime" / "WavelyTrain.exe"
 WINDOW_TITLE = "WAVELY Vision"
 ENROLMENT_WINDOW_TITLE = "WAVELY Video Face Enrolment"
-APP_VERSION = "0.1.1"
+APP_VERSION = "0.1.2"
 PERSON_PLACEHOLDER = "Select person..."
 ADD_PERSON_ITEM = "Add new person..."
 
