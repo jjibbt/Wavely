@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.env
+
+build/
+
+# WAVELY personal and generated data
+assets/faces/
+assets/*.pkl
+config/face_model.yml
+config/face_labels.json
+config/active_camera_aspect.json
+config/wavely_dashboard.json
+config/wavely_window.json
+config/wavely_console_window.json
+logs/
+backups/
+runtime/
+*.exe

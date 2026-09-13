@@ -1,0 +1,5 @@
+PyInstaller==6.22.3
+numpy==1.26.4
+opencv-contrib-python==4.11.0.86
+mediapipe==0.10.21
+pyttsx3==2.99

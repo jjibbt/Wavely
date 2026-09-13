@@ -1,0 +1,17 @@
+# Add this to Home Assistant after replacing the webhook ID and example entity IDs.
+alias: WAVELY gesture and panel actions
+trigger:
+  - platform: webhook
+    webhook_id: wavely_example_webhook_id
+    allowed_methods: [POST]
+action:
+  - choose:
+      - conditions: "{{ trigger.json.action == 'example_light_toggle' }}"
+        sequence:
+          - service: light.toggle
+            target: {entity_id: "light.example_room"}
+      - conditions: "{{ trigger.json.action == 'example_scene' }}"
+        sequence:
+          - service: scene.turn_on
+            target: {entity_id: "scene.example_scene"}
+mode: single
