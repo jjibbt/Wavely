@@ -37,6 +37,8 @@ TRAINING_PROGRAM = ROOT / "runtime" / "WavelyTrain.exe"
 WINDOW_TITLE = "WAVELY Vision"
 ENROLMENT_WINDOW_TITLE = "WAVELY Video Face Enrolment"
 APP_VERSION = "0.1.1"
+PERSON_PLACEHOLDER = "Select person..."
+ADD_PERSON_ITEM = "Add new person..."
 
 GWL_STYLE = -16
 WS_CHILD = 0x40000000
@@ -47,6 +49,39 @@ SWP_NOZORDER = 0x0004
 SWP_FRAMECHANGED = 0x0020
 
 user32 = ctypes.windll.user32
+
+
+def configure_process_dpi_awareness():
+    """Opt the dashboard into native per-monitor DPI before Tk creates windows."""
+    try:
+        # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 is (HANDLE)-4.
+        set_context = user32.SetProcessDpiAwarenessContext
+        set_context.argtypes = [ctypes.c_void_p]
+        set_context.restype = ctypes.c_bool
+        if set_context(ctypes.c_void_p(-4)):
+            return
+    except (AttributeError, OSError):
+        pass
+
+    try:
+        # Windows 8.1 fallback: per-monitor awareness without V2 behaviour.
+        set_awareness = ctypes.windll.shcore.SetProcessDpiAwareness
+        set_awareness.argtypes = [ctypes.c_int]
+        set_awareness.restype = ctypes.c_long
+        if set_awareness(2) == 0:
+            return
+    except (AttributeError, OSError):
+        pass
+
+    try:
+        # Windows 7 fallback: system DPI awareness is still preferable to
+        # allowing Windows to bitmap-scale the Tk window.
+        user32.SetProcessDPIAware()
+    except (AttributeError, OSError):
+        pass
+
+
+configure_process_dpi_awareness()
 
 
 class Tooltip:
@@ -197,12 +232,13 @@ class WavelyDashboard:
         self.person_picker = ttk.Combobox(
             enrol_group,
             textvariable=self.person_var,
-            values=["Select person..."] + people,
+            values=[PERSON_PLACEHOLDER] + people + [ADD_PERSON_ITEM],
             state="readonly",
             width=20,
             style="Wavely.TCombobox",
         )
         self.person_picker.pack(fill="x", pady=(12, 0), ipady=2)
+        self.person_picker.bind("<<ComboboxSelected>>", self.person_picker_selected)
         self.tools_button = tk.Menubutton(toolbar, text="Tools  ▾", bg="#273343", fg="white", activebackground="#356da8", activeforeground="white", relief="flat", padx=14, pady=22, font=("Segoe UI", 10, "bold"))
         self.tools_button.pack(side="left", padx=(10, 0), fill="y")
         self.tools_menu = tk.Menu(self.tools_button, tearoff=False, bg="#171d25", fg="#f2f6fa", activebackground="#356da8", activeforeground="white", font=("Segoe UI", 10))
@@ -362,8 +398,14 @@ class WavelyDashboard:
     def refresh_people(self):
         current = self.person_var.get()
         people = self.available_people()
-        self.person_picker.configure(values=["Select person..."] + people)
-        self.person_var.set(current if current in people else "Select person...")
+        self.person_picker.configure(values=[PERSON_PLACEHOLDER] + people + [ADD_PERSON_ITEM])
+        self.person_var.set(current if current in people else PERSON_PLACEHOLDER)
+
+    def person_picker_selected(self, _event=None):
+        """Handle the selector action without allowing it into enrolment."""
+        if self.person_var.get() == ADD_PERSON_ITEM:
+            self.person_var.set(PERSON_PLACEHOLDER)
+            self.open_people_manager()
 
     @staticmethod
     def enrolment_pose_labels():
@@ -1048,10 +1090,18 @@ class WavelyDashboard:
 
     def open_people_manager(self):
         dialog = self.dark_dialog("People manager")
+        def close_manager():
+            dialog.destroy()
+            self.refresh_people()
+
         tk.Label(dialog, text="People manager", bg="#10151c", fg="#f2f6fa", font=("Segoe UI", 14, "bold"), padx=24, pady=14).pack()
-        tk.Label(dialog, text="Review saved face images. Train the model after adding or removing enrolments.", bg="#10151c", fg="#aeb8c6", wraplength=400, justify="left").pack(anchor="w", padx=24)
+        people = self.available_people()
+        guidance = "Review saved face images. Train the model after adding or removing enrolments."
+        if not people:
+            guidance = "No people exist yet. Add a person here before starting Video Enrolment."
+        tk.Label(dialog, text=guidance, bg="#10151c", fg="#aeb8c6", wraplength=400, justify="left").pack(anchor="w", padx=24)
         listbox = tk.Listbox(dialog, width=47, height=9, bg="#171d25", fg="#f2f6fa", selectbackground="#356da8", activestyle="none", highlightthickness=1, highlightbackground="#356da8")
-        for person in self.available_people():
+        for person in people:
             folder = FACES_DIR / person
             count = len(list(folder.glob("*.jpg"))) if folder.exists() else 0
             listbox.insert("end", f"{person}   —   {count} face images")
@@ -1060,7 +1110,8 @@ class WavelyDashboard:
         tk.Button(buttons, text="Train face model", command=lambda: (dialog.destroy(), self.start_face_training()), bg="#19a974", fg="white", relief="flat", padx=12, pady=7).pack(side="left")
         tk.Button(buttons, text="Add person", command=lambda: (dialog.destroy(), self.open_add_person_dialog()), bg="#356da8", fg="white", relief="flat", padx=12, pady=7).pack(side="left", padx=(8, 0))
         tk.Button(buttons, text="Delete selected", command=lambda: self.show_delete_confirmation(dialog, listbox), bg="#a93d3e", fg="white", relief="flat", padx=12, pady=7).pack(side="left", padx=(8, 0))
-        tk.Button(buttons, text="Close", command=dialog.destroy, bg="#273343", fg="white", relief="flat", padx=14, pady=7).pack(side="right")
+        tk.Button(buttons, text="Close", command=close_manager, bg="#273343", fg="white", relief="flat", padx=14, pady=7).pack(side="right")
+        dialog.protocol("WM_DELETE_WINDOW", close_manager)
         self.centre_dialog(dialog)
 
     def open_home_actions(self):
@@ -1266,12 +1317,36 @@ class WavelyDashboard:
     def start_enrolment(self, person=None, pose_index=0):
         if self.process and self.process.poll() is None:
             return
-        person = person or self.person_var.get()
-        if person == "Select person...":
+        person = (person or self.person_var.get()).strip()
+        if person in {PERSON_PLACEHOLDER, ADD_PERSON_ITEM}:
             person = ""
         if not person:
-            messagebox.showwarning("Person required", "Enter the name of the new person before starting enrolment.", parent=self.root)
+            if not self.available_people():
+                open_manager = messagebox.askyesno(
+                    "Create a person first",
+                    "No people exist yet. Create a person in People Manager before starting Video Enrolment?",
+                    parent=self.root,
+                )
+                if open_manager:
+                    self.open_people_manager()
+            else:
+                messagebox.showwarning(
+                    "Choose a person",
+                    "Choose an enrolled person from the Video Enrolment selector before starting.",
+                    parent=self.root,
+                )
             return
+        people = self.available_people()
+        match = next((name for name in people if name.casefold() == person.casefold()), None)
+        if match is None:
+            self.refresh_people()
+            messagebox.showwarning(
+                "Choose a person",
+                "That person is no longer available. Refresh the Video Enrolment selector and choose a person.",
+                parent=self.root,
+            )
+            return
+        person = match
         pose_name = "all poses" if pose_index == 0 else self.enrolment_pose_labels()[pose_index - 1]
         self.write_log(f"\nStarting {pose_name} enrolment for {person}...\n")
         self.active_enrolment_person = person
