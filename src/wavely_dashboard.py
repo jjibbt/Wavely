@@ -9,7 +9,8 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
-import winreg
+import urllib.error
+import urllib.request
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from urllib.parse import urlparse
@@ -101,7 +102,8 @@ class WavelyDashboard:
         self.stream_aspect = 16 / 9
         self.aspect_file_mtime = None
         self.theme_defaults = {}
-        self.current_windows_dark = None
+        saved_theme = self.settings.get("theme")
+        self.theme_is_dark = saved_theme == "dark" if saved_theme in {"dark", "light"} else True
 
         self.root = tk.Tk()
         self.root.title("WAVELY Vision Control")
@@ -137,6 +139,9 @@ class WavelyDashboard:
             self.root.geometry(default_geometry)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.root.bind("<Configure>", self.save_layout_later)
+        self.root.bind("<Control-comma>", lambda _event: self.open_settings())
+        self.root.bind("<F5>", lambda _event: self.open_settings())
+        self.root.bind("<Control-l>", lambda _event: self.open_activity_log())
         self.root.after(700, self.enable_layout_saving)
 
         if self.settings.get("maximized"):
@@ -206,16 +211,38 @@ class WavelyDashboard:
         self.tools_menu.add_command(label="People manager", command=self.open_people_manager)
         self.tools_menu.add_command(label="Gesture test mode", command=self.start_test_mode)
         self.tools_menu.add_command(label="Home Assistant actions", command=self.open_home_actions)
+        self.tools_menu.add_command(label="Health check", command=self.open_health_check)
         self.tools_menu.add_command(label="Activity log", command=self.open_activity_log)
         self.tools_button.configure(menu=self.tools_menu)
+        self.theme_button = tk.Button(
+            toolbar,
+            text="☀" if self.theme_is_dark else "☾",
+            command=self.toggle_theme,
+            bg="#273343",
+            fg="white",
+            activebackground="#356da8",
+            activeforeground="white",
+            relief="flat",
+            padx=10,
+            pady=7,
+            font=("Segoe UI Symbol", 12, "bold"),
+        )
+        self.theme_button.pack(side="left", padx=(6, 0), fill="y")
+        self.theme_tooltip = Tooltip(self.theme_button, "Switch to light mode" if self.theme_is_dark else "Switch to dark mode")
 
         self.status_box = tk.Frame(toolbar, bg="#10151c")
         self.status_box.pack(side="right", padx=(12, 0), fill="y")
-        self.status_dot = tk.Canvas(self.status_box, width=14, height=14, bg="#10151c", highlightthickness=0)
-        self.status_dot.pack(side="left", padx=(0, 7))
+        self.status_text = tk.Frame(self.status_box, bg="#10151c")
+        self.status_text.pack(side="left")
+        self.status_line = tk.Frame(self.status_text, bg="#10151c")
+        self.status_line.pack(anchor="e")
+        self.status_dot = tk.Canvas(self.status_line, width=14, height=14, bg="#10151c", highlightthickness=0)
+        self.status_dot.pack(side="left", padx=(0, 7), pady=(2, 0))
         self.status_circle = self.status_dot.create_oval(2, 2, 12, 12, fill="#cc4b4c", outline="")
-        self.status = tk.Label(self.status_box, text="Vision is off", bg="#10151c", fg="#cdd6e2", font=("Segoe UI", 10, "bold"))
+        self.status = tk.Label(self.status_line, text="Vision is off", bg="#10151c", fg="#cdd6e2", font=("Segoe UI", 10, "bold"), anchor="e")
         self.status.pack(side="left")
+        self.readiness = tk.Label(self.status_text, text="Checking readiness...", bg="#10151c", fg="#aeb8c6", font=("Segoe UI", 8), anchor="e")
+        self.readiness.pack(anchor="e")
         self.root.after(10, self.enable_hover_feedback)
 
         body = tk.PanedWindow(
@@ -245,7 +272,13 @@ class WavelyDashboard:
         body.add(camera_panel, minsize=650, stretch="always")
 
         self.logs_panel = tk.Frame(body, bg="#171d25", highlightthickness=1, highlightbackground="#2d3a4a")
-        self.logs_title = tk.Label(self.logs_panel, text="WAVELY LOGS", bg="#171d25", fg="#cdd6e2", anchor="w", padx=10, pady=9, font=("Segoe UI", 10, "bold")); self.logs_title.pack(fill="x")
+        self.logs_header = tk.Frame(self.logs_panel, bg="#171d25")
+        self.logs_header.pack(fill="x")
+        self.logs_title = tk.Label(self.logs_header, text="WAVELY LOGS", bg="#171d25", fg="#cdd6e2", anchor="w", padx=10, pady=9, font=("Segoe UI", 10, "bold")); self.logs_title.pack(side="left")
+        self.logs_copy_button = tk.Button(self.logs_header, text="Copy", command=self.copy_logs, bg="#273343", fg="white", activebackground="#356da8", activeforeground="white", relief="flat", padx=8, pady=3, font=("Segoe UI", 8))
+        self.logs_copy_button.pack(side="right", padx=(0, 5), pady=5)
+        self.logs_clear_button = tk.Button(self.logs_header, text="Clear", command=self.clear_logs, bg="#273343", fg="white", activebackground="#356da8", activeforeground="white", relief="flat", padx=8, pady=3, font=("Segoe UI", 8))
+        self.logs_clear_button.pack(side="right", padx=(0, 5), pady=5)
         self.logs = scrolledtext.ScrolledText(
             self.logs_panel,
             bg="#0b0e12",
@@ -291,7 +324,8 @@ class WavelyDashboard:
         self.root.after(250, self.poll_camera_aspect)
         # Run after the full interface exists; applying a theme during toolbar
         # construction leaves later panels with the old colour palette.
-        self.root.after(250, self.refresh_windows_theme)
+        self.root.after(250, lambda: self.apply_windows_theme(self.theme_is_dark))
+        self.root.after(500, self.refresh_readiness)
         if not self.app_config.get("setup_complete") and not any(FACES_DIR.iterdir()):
             self.root.after(900, lambda: self.open_settings(first_run=True))
 
@@ -518,6 +552,7 @@ class WavelyDashboard:
             "geometry": saved_geometry,
             "maximized": maximized,
             "command_history": self.command_history[-50:],
+            "theme": "dark" if self.theme_is_dark else "light",
         }
         SETTINGS_FILE.write_text(json.dumps(self.settings, indent=2), encoding="utf-8")
 
@@ -532,28 +567,84 @@ class WavelyDashboard:
         if clean and ("TRIGGERED:" in clean or "ERROR" in clean or "enrolment" in clean.casefold()):
             self.write_activity(clean)
 
+    def copy_logs(self):
+        """Copy the visible dashboard log without exposing private webhook data."""
+        content = self.logs.get("1.0", "end-1c")
+        self.root.clipboard_clear()
+        self.root.clipboard_append(content)
+        self.write_log("Visible logs copied to the clipboard.\n")
+
+    def clear_logs(self):
+        """Clear only the dashboard view; the timestamped activity file is kept."""
+        self.logs.configure(state="normal")
+        self.logs.delete("1.0", "end")
+        self.logs.configure(state="disabled")
+        self.write_log("Dashboard log cleared. Activity history is still available from Tools.\n")
+
+    def refresh_readiness(self):
+        """Show a compact, actionable summary of the local WAVELY setup."""
+        camera_name = self.app_config.get("camera_name") or "No camera selected"
+        people = self.available_people()
+        model_ready = (CONFIG_DIR / "face_model.yml").is_file() and (CONFIG_DIR / "face_labels.json").is_file()
+        home = self.load_json(ACTION_CONFIG_FILE, {"webhook_url": "", "actions": []})
+        webhook_ready = bool(str(home.get("webhook_url", "")).strip())
+        if not self.app_config.get("setup_complete"):
+            summary = "Setup required"
+        elif not camera_name or camera_name == "No camera selected":
+            summary = "Choose a camera"
+        elif people and model_ready and webhook_ready:
+            summary = f"Ready · {camera_name} · {len(people)} enrolled"
+        elif not people or not model_ready:
+            summary = f"Camera ready · {camera_name} · Face model not trained"
+        elif not webhook_ready:
+            summary = f"Camera ready · {camera_name} · Home Assistant not configured"
+        else:
+            summary = f"Camera ready · {camera_name}"
+        if hasattr(self, "readiness") and self.readiness.winfo_exists():
+            self.readiness.configure(text=summary)
+            self.root.after(2500, self.refresh_readiness)
+
+    def open_health_check(self):
+        dialog = self.dark_dialog("WAVELY health check")
+        tk.Label(dialog, text="WAVELY health check", bg="#10151c", fg="#f2f6fa", font=("Segoe UI", 14, "bold"), padx=24, pady=14).pack(anchor="w")
+        tk.Label(dialog, text="A quick local check of the things WAVELY needs before you start Vision.", bg="#10151c", fg="#aeb8c6", wraplength=560, justify="left", padx=24).pack(anchor="w")
+        checks = tk.Frame(dialog, bg="#10151c", padx=24, pady=14)
+        checks.pack(fill="both", expand=True)
+        home = self.load_json(ACTION_CONFIG_FILE, {"webhook_url": "", "actions": []})
+        camera = self.app_config.get("camera_name") or ""
+        model = (CONFIG_DIR / "face_model.yml").is_file() and (CONFIG_DIR / "face_labels.json").is_file()
+        rows = [
+            (bool(self.app_config.get("setup_complete")), "required", "Initial setup is complete", "Open Settings and choose a camera"),
+            (bool(camera), "required", f"Camera selected: {camera or 'none'}", "Open Settings and refresh devices"),
+            (bool(self.available_people()), "optional", f"Enrolled people: {len(self.available_people())}", "Use Video Enrolment to add a person"),
+            (model, "optional", "Face model is available", "Train the face model from People manager"),
+            (bool(str(home.get("webhook_url", "")).strip()), "optional", "Home Assistant is configured", "Configure it from Tools if you use Home Assistant"),
+            (VISION_PROGRAM.exists() or Path(sys.executable).exists(), "required", "Vision runtime is available", "Reinstall WAVELY if the runtime is missing"),
+        ]
+        for passed, importance, label, action in rows:
+            colour = "#19a974" if passed else ("#f2c14e" if importance == "required" else "#8f9baa")
+            suffix = "" if passed else (" · optional" if importance == "optional" else " · needs attention")
+            tk.Label(checks, text=("✓" if passed else "!") + "  " + label + suffix, bg="#10151c", fg=colour, font=("Segoe UI", 10, "bold"), anchor="w").pack(fill="x", pady=3)
+            if not passed:
+                tk.Label(checks, text="     " + action, bg="#10151c", fg="#aeb8c6", font=("Segoe UI", 9), anchor="w").pack(fill="x")
+        buttons = tk.Frame(dialog, bg="#10151c", padx=24, pady=16)
+        buttons.pack(fill="x")
+        tk.Button(buttons, text="Settings", command=lambda: (dialog.destroy(), self.open_settings()), bg="#356da8", fg="white", relief="flat", padx=14, pady=7).pack(side="left")
+        tk.Button(buttons, text="Close", command=dialog.destroy, bg="#273343", fg="white", relief="flat", padx=14, pady=7).pack(side="right")
+        self.centre_dialog(dialog)
+
     def set_status(self, text, colour="#aeb8c6"):
-        self.status.configure(text=text, fg="#cdd6e2")
+        self.status.configure(text=text, fg="#f2f6fa" if self.theme_is_dark else "#17212b")
         self.status_dot.itemconfigure(self.status_circle, fill=colour)
 
-    @staticmethod
-    def windows_uses_dark_mode():
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
-                return winreg.QueryValueEx(key, "AppsUseLightTheme")[0] == 0
-        except OSError:
-            return True
-
-    def refresh_windows_theme(self):
-        dark = self.windows_uses_dark_mode()
-        if dark != self.current_windows_dark:
-            self.current_windows_dark = dark
-            self.apply_windows_theme(dark)
-            for window in self.root.winfo_children():
-                if isinstance(window, tk.Toplevel) and window.winfo_exists():
-                    self.apply_dialog_theme(window)
-        if self.root.winfo_exists():
-            self.root.after(1000, self.refresh_windows_theme)
+    def toggle_theme(self):
+        """Switch the dashboard theme immediately and remember the choice."""
+        self.theme_is_dark = not self.theme_is_dark
+        self.apply_windows_theme(self.theme_is_dark)
+        for window in self.root.winfo_children():
+            if isinstance(window, tk.Toplevel) and window.winfo_exists():
+                self.apply_dialog_theme(window, self.theme_is_dark)
+        self.save_layout()
 
     @staticmethod
     def configure_vision_button_styles(style):
@@ -574,7 +665,7 @@ class WavelyDashboard:
 
     def apply_windows_theme(self, dark=None):
         """Apply a predictable Windows light or dark palette to the live interface."""
-        dark = self.windows_uses_dark_mode() if dark is None else dark
+        dark = self.theme_is_dark if dark is None else dark
         if dark:
             app_bg, panel_bg, text_fg = "#10151c", "#171d25", "#f2f6fa"
             log_bg, log_fg, border = "#0b0e12", "#d7e1ec", "#2d3a4a"
@@ -591,10 +682,16 @@ class WavelyDashboard:
         self.enrol_group.configure(bg=app_bg)
         self.body.configure(bg=app_bg)
         self.status_box.configure(bg=app_bg)
+        self.status_text.configure(bg=app_bg)
+        self.status_line.configure(bg=app_bg)
         self.status_dot.configure(bg=app_bg)
         self.status.configure(bg=app_bg, fg=text_fg)
+        self.readiness.configure(bg=app_bg, fg="#aeb8c6" if dark else "#526272")
         self.logs_panel.configure(bg=panel_bg, highlightbackground=border)
+        self.logs_header.configure(bg=panel_bg)
         self.logs_title.configure(bg=panel_bg, fg=text_fg)
+        self.logs_copy_button.configure(bg="#273343", fg="white")
+        self.logs_clear_button.configure(bg="#273343", fg="white")
         self.command_bar.configure(bg=panel_bg)
         self.logs.configure(bg=log_bg, fg=log_fg, insertbackground=log_fg,
                             selectbackground="#356da8", selectforeground="white")
@@ -636,6 +733,13 @@ class WavelyDashboard:
         except tk.TclError:
             pass
         self.configure_vision_button_styles(style)
+        self.theme_button.configure(
+            text="☀" if dark else "☾",
+            bg="#273343" if dark else "#526272",
+            activebackground="#356da8",
+            fg="white",
+        )
+        self.theme_tooltip.text = "Switch to light mode" if dark else "Switch to dark mode"
         style.configure("Wavely.TCombobox", fieldbackground=combo_field,
                         background="#356da8", foreground=combo_arrow,
                         arrowcolor=combo_arrow, bordercolor="#356da8",
@@ -652,10 +756,11 @@ class WavelyDashboard:
             menu.configure(bg=panel_bg, fg=text_fg, activebackground="#356da8",
                            activeforeground="white")
         self.apply_windows_backdrop(self.root, dark)
+        self.apply_windows_titlebar(self.root, dark)
 
-    def apply_dialog_theme(self, dialog):
+    def apply_dialog_theme(self, dialog, dark=None):
         """Theme a transient window built with the dashboard's standard controls."""
-        dark = self.windows_uses_dark_mode()
+        dark = self.theme_is_dark if dark is None else dark
         if dark:
             app_bg, panel_bg, text_fg, input_bg = "#10151c", "#171d25", "#f2f6fa", "#0b0e12"
         else:
@@ -718,6 +823,21 @@ class WavelyDashboard:
         except (AttributeError, OSError):
             pass
 
+    @staticmethod
+    def apply_windows_titlebar(window, dark):
+        """Request a native light or dark Windows title bar when supported."""
+        try:
+            window.update_idletasks()
+            hwnd = window.winfo_id()
+            value = ctypes.c_int(1 if dark else 0)
+            dwmapi = ctypes.windll.dwmapi
+            # Windows 10 20H1+ uses attribute 20. Older builds used 19.
+            result = dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(value), ctypes.sizeof(value))
+            if result != 0:
+                dwmapi.DwmSetWindowAttribute(hwnd, 19, ctypes.byref(value), ctypes.sizeof(value))
+        except (AttributeError, OSError, tk.TclError):
+            pass
+
     def enable_hover_feedback(self):
         def visit(widget):
             if isinstance(widget, (tk.Button, tk.Menubutton)):
@@ -733,11 +853,11 @@ class WavelyDashboard:
         dialog = tk.Toplevel(self.root)
         dialog.withdraw()
         dialog.title(title)
-        dialog.configure(bg="#10151c" if self.windows_uses_dark_mode() else "#f3f5f7")
+        dialog.configure(bg="#10151c" if self.theme_is_dark else "#f3f5f7")
         dialog.transient(self.root)
         dialog.grab_set()
         dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
-        self.apply_windows_backdrop(dialog, self.current_windows_dark if self.current_windows_dark is not None else True)
+        self.apply_windows_backdrop(dialog, self.theme_is_dark)
         return dialog
 
     def open_settings(self, first_run=False):
@@ -1047,6 +1167,25 @@ class WavelyDashboard:
             payload = payload_for_gesture("Example person", "Right", item["gesture"], preview_actions)
             messagebox.showinfo("Webhook preview", json.dumps(payload, indent=2), parent=dialog)
 
+        def check_address():
+            webhook = url.get().strip()
+            parsed = urlparse(webhook)
+            if not webhook or parsed.scheme not in ("http", "https") or not parsed.netloc:
+                messagebox.showwarning("Webhook address", "Enter a complete http:// or https:// address first.", parent=dialog)
+                return
+            try:
+                request = urllib.request.Request(webhook, method="HEAD")
+                with urllib.request.urlopen(request, timeout=5) as response:
+                    status = response.status
+                messagebox.showinfo("Address reachable", f"Home Assistant responded successfully (HTTP {status}). No action was sent.", parent=dialog)
+            except urllib.error.HTTPError as error:
+                if error.code in (401, 403, 405):
+                    messagebox.showinfo("Address reachable", f"The address responded (HTTP {error.code}). No action was sent.", parent=dialog)
+                else:
+                    messagebox.showwarning("Address check failed", f"The address responded with HTTP {error.code}. No action was sent.", parent=dialog)
+            except (OSError, ValueError) as error:
+                messagebox.showwarning("Address check failed", f"WAVELY could not reach the configured address.\n\n{error}", parent=dialog)
+
         def save_actions():
             webhook = url.get().strip()
             parsed = urlparse(webhook)
@@ -1065,7 +1204,7 @@ class WavelyDashboard:
         refresh()
         row = tk.Frame(dialog, bg="#10151c", padx=24, pady=16)
         row.pack(fill="x")
-        for title, command in (("New", clear_fields), ("Add / update", add_or_update), ("Remove", remove_selected), ("Preview", preview)):
+        for title, command in (("New", clear_fields), ("Add / update", add_or_update), ("Remove", remove_selected), ("Preview", preview), ("Check address", check_address)):
             tk.Button(row, text=title, command=command, bg="#356da8", fg="white", relief="flat", padx=12, pady=7).pack(side="left", padx=(0, 7))
         tk.Button(row, text="Save", command=save_actions, bg="#19a974", fg="white", relief="flat", padx=16, pady=7).pack(side="right")
         tk.Button(row, text="Cancel", command=dialog.destroy, bg="#273343", fg="white", relief="flat", padx=16, pady=7).pack(side="right", padx=(0, 8))

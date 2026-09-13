@@ -92,6 +92,10 @@ Selected devices and settings are remembered in your WAVELY user data. Use
 Refresh devices to rescan connected cameras, and Refresh audio devices to
 rescan audio devices.
 
+The dashboard also shows a compact readiness summary. Open Tools > Health check
+for an actionable check of setup, camera, enrolled people, face model, Home
+Assistant configuration, and the installed vision runtime.
+
 If a previously selected camera is disconnected, WAVELY first attempts to
 restore it by its Windows device identity and then by its saved name. If it is
 not available, WAVELY safely selects another available camera and reports the
@@ -109,6 +113,24 @@ fallback in the settings window.
 7. Select Start WAVELY Vision to start the live vision and gesture system.
 8. Use Tools > Settings and camera later to change the camera, audio devices,
    resolution, mirroring, startup, or gesture-sensitivity settings.
+
+The top-right readiness summary shows whether setup is ready and identifies the
+selected camera, face-model state, and Home Assistant configuration. Tools >
+Health check gives the same information with suggestions for resolving missing
+required components. The log panel has Copy and Clear controls; Clear only
+clears the on-screen view and does not delete the saved activity history.
+
+Use the sun/moon button beside Tools to switch between Light and Dark mode.
+The choice is saved in your WAVELY user data and applies immediately, including
+the native Windows title bar. Existing installations without a saved choice
+default to Dark mode. WAVELY does not follow Windows appearance changes after
+startup; use the WAVELY toggle when you want to change mode.
+
+Keyboard shortcuts:
+
+  Ctrl+,   Open Settings and camera
+  F5       Open Settings and camera
+  Ctrl+L   Open the activity log
 
 Face recognition identifies people from locally enrolled face data. Gesture
 recognition detects the supported gestures implemented by WAVELY and applies
