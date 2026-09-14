@@ -29,10 +29,6 @@ WAVELY does not currently use a microphone for an active feature.
 - Windows camera permissions for WAVELY
 - Optional: Home Assistant for Home Assistant actions
 
-You do not need to install Python, MediaPipe, OpenCV, VS Code, or a development
-environment. The required runtime components are bundled in the installed
-WAVELY application.
-
 3. INSTALLATION
 ---------------
 1. Download and run WAVELY-Setup.exe.
@@ -45,8 +41,7 @@ The default installation directory is:
 
   %LOCALAPPDATA%\Programs\WAVELY
 
-Normal users should install WAVELY with WAVELY-Setup.exe. Do not run Python
-source files; they are not required for normal use.
+Install WAVELY with WAVELY-Setup.exe.
 
 4. FIRST START
 --------------
